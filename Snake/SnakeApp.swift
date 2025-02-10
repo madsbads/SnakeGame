@@ -10,9 +10,10 @@ import SwiftData
 
 @main
 struct SnakeApp: App {
+    
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            GameItem.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -26,6 +27,7 @@ struct SnakeApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(GameStatus())
         }
         .modelContainer(sharedModelContainer)
     }
