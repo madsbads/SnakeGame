@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		091C08EE2D6294B30016F3D1 /* ShakeDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091C08ED2D6294B30016F3D1 /* ShakeDetector.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		091CC97B2D443D2100AE4771 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,6 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		091C08ED2D6294B30016F3D1 /* ShakeDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShakeDetector.swift; sourceTree = "<group>"; };
 		091CC9682D443D1F00AE4771 /* Snake.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Snake.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		091CC97A2D443D2100AE4771 /* SnakeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnakeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		091CC9842D443D2100AE4771 /* SnakeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnakeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -75,6 +80,7 @@
 		091CC95F2D443D1F00AE4771 = {
 			isa = PBXGroup;
 			children = (
+				091C08ED2D6294B30016F3D1 /* ShakeDetector.swift */,
 				091CC96A2D443D1F00AE4771 /* Snake */,
 				091CC97D2D443D2100AE4771 /* SnakeTests */,
 				091CC9872D443D2100AE4771 /* SnakeUITests */,
@@ -236,6 +242,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				091C08EE2D6294B30016F3D1 /* ShakeDetector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -15,24 +15,41 @@ class GameStatus: ObservableObject {
     var isGamePaused: Bool = false
 }
 
+final class GameSettings: ObservableObject {
+    @Published var controlMode: MainMenuView.ControlMode = .drag
+}
+
+// MARK: - Content View
 struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query(filter: #Predicate { $0.score > 0 }, sort: \GameItem.score, order: .forward) private var gameItems: [GameItem]
-
+    
+    @StateObject private var gameSettings = GameSettings()
     @Environment(GameStatus.self) private var gameStatus
     
     var body: some View {
 //        GameView(gameStatus: gameStatus)
         MainMenuView()
+            .environmentObject(gameSettings)
     }
 }
 
 // MARK: - Main Menu
 struct MainMenuView: View {
     
+    // Define the 2 control options
+    enum ControlMode: String, CaseIterable, Identifiable {
+        var id: String { self.rawValue }
+        case drag = "drag"
+        case tilt = "tilt"
+    }
+    // State var to track selection
+    @State private var selectedMode: ControlMode = .drag
+    
     @State private var isGameActive: Bool = false
     @State private var inSettings: Bool = false
     @Environment(GameStatus.self) private var gameStatus
+    @EnvironmentObject private var gameSettings: GameSettings
     
     // button to navigate to new game
     
@@ -70,11 +87,30 @@ struct MainMenuView: View {
             GameView(gameStatus: gameStatus)
         }
         .sheet(isPresented: $inSettings) {
-            // Setting Menu
-            Text("settings")
-            .interactiveDismissDisabled(false)
+            HStack() {
+                Text("play mode")
+                    .monospaced()
+                    
+                
+                // The Picker with a segmented style allows a toggle between the two options.
+                Picker("Control Mode", selection: $selectedMode) {
+                    ForEach(ControlMode.allCases) { mode in
+                        Text(mode.rawValue)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(SegmentedPickerStyle())
+                .padding()
+            }
+            .padding()
+            .onDisappear {
+                // Upddate shared setting when sheet dismissed
+                gameSettings.controlMode = selectedMode
+            }
         }
-
+        .interactiveDismissDisabled(false)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color("defaultBackgroundColor"))
     }
 }
 
@@ -120,6 +156,14 @@ struct GameView: View {
     
     @State private var playAreaLocalWidth: CGFloat = 0
     @State private var playAreaLocalHeight: CGFloat = 0
+    
+    enum ControlMode {
+        case drag
+        case tilt
+    }
+    
+    @EnvironmentObject private var gameSettings: GameSettings
+    @State private var motionManager = MotionManager()
     
     var body: some View {
         
@@ -189,40 +233,63 @@ struct GameView: View {
                     self.theSnake[0] = changeRectPosition()
                 }
                 // Handle swipe gestures
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 15)
-                        .onEnded { gesture in
-                            let translation = gesture.translation
-                            if abs(translation.width) > abs(translation.height) {
-                                // Horizontal swipe
-                                if translation.width > 0 && direction != .left {
-                                    direction = .right
-                                } else if translation.width < 0 && direction != .right {
-                                    direction = .left
+                .if(gameSettings.controlMode == .drag) { view in
+                    view.highPriorityGesture(
+                        DragGesture(minimumDistance: 15)
+                            .onEnded { gesture in
+                                let translation = gesture.translation
+                                if abs(translation.width) > abs(translation.height) {
+                                    // Horizontal swipe
+                                    if translation.width > 0 && direction != .left {
+                                        direction = .right
+                                    } else if translation.width < 0 && direction != .right {
+                                        direction = .left
+                                    }
+                                } else {
+                                    // Vertical Swipe
+                                    if translation.height > 0 && direction != .up{
+                                        direction = .down
+                                    } else if translation.height < 0 && direction != .down {
+                                        direction = .up
+                                    }
                                 }
-                            } else {
-                                // Vertical Swipe
-                                if translation.height > 0 && direction != .up{
-                                    direction = .down
-                                } else if translation.height < 0 && direction != .down {
-                                    direction = .up
-                                }
+                                
                             }
-  
-                            }
-                        )
+                    )
+                }
                 // Update snake movement on each timer tick
                 .onReceive(self.timerPublisher) { _ in
-                    if !self.gameStatus.isGameOver && !self.gameStatus.isGamePaused {
-                        self.moveSnake()
+                    // If paused or game over, don't update game anymore
+                    if gameStatus.isGamePaused || gameStatus.isGameOver {
+                        return
+                    }
+                
+                    if gameSettings.controlMode == .tilt {
+                        let tiltThreshold = 0.2
                         
-                        // Check for food collision
-                        if theSnake.first == foodPosition {
-                            theSnake.append(theSnake.first!) // Snake grows
-                            foodPosition = changeRectPosition()
+                        // Horizontal direction: positive roll is a tilt to the right
+                        if motionManager.roll > tiltThreshold && direction != .left {
+                            direction = .right
+                        } else if motionManager.roll < -tiltThreshold && direction != .right {
+                            direction = .left
+                        }
+                        // Vertical direction: positive pitch is a tilt downward
+                        if motionManager.pitch > tiltThreshold && direction != .up {
+                            direction = .down
+                        } else if motionManager.pitch < -tiltThreshold && direction != .down {
+                            direction = .up
                         }
                     }
+                    
+                    moveSnake()
+                    
+                    // Check for food collision
+                    if theSnake.first == foodPosition {
+                        theSnake.append(theSnake.first!) // Snake grows
+                        foodPosition = changeRectPosition()
+                    }
                 }
+                
                 
                 HStack {
                     Button(action: {
@@ -262,9 +329,8 @@ struct GameView: View {
                     .font(.title2)
                 
                 Button("new game", action: {
-                    gameStatus.isGameOver.toggle()
-                    score = startNewGame()
-                    // Call gameOver() ??
+                    startNewGame()
+                    gameStatus.isGameOver = false
                 })
                 .monospaced()
                 .frame(width: 150, height: 50)
@@ -359,7 +425,7 @@ struct GameView: View {
     
     // Handles game over logic.
     func gameOver() {
-        gameStatus.isGameOver.toggle()
+        gameStatus.isGameOver = true
         if theSnake.count > 1 {
             score.score = theSnake.count - 1
             saveGameItem()
@@ -402,7 +468,7 @@ struct GameView: View {
         return highScore ?? GameItem()
     }
     
-    func startNewGame() -> GameItem {
+    func startNewGame() {
         
         // Save current GameItem
         saveGameItem()
@@ -428,8 +494,6 @@ struct GameView: View {
         // Reset speed-related variables
         timerInterval = 0.15
         lastSpeedIncreaseScore = 0
-        
-        return score
     }
     
     func calculateAccumulatedPoints() {
