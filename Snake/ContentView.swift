@@ -136,7 +136,8 @@ struct GameView: View {
     
     // Game pieces
     @State private var direction = Direction.left
-    @State private var theSnake: [CGPoint] = [CGPoint(x: 0, y: 0)] // .count - 1 serves as current score
+    @State private var theSnake: [CGPoint] = [CGPoint(x: 0, y: 0)]
+    @State private var scoreAccumulator: Int = 0
     @State private var foodPosition = CGPoint(x: 0, y: 0)
     @State private var startPosition: CGPoint = .zero
     
@@ -179,7 +180,7 @@ struct GameView: View {
                     .ignoresSafeArea()
                 
                 HStack {
-                    Text("score: \(theSnake.count - 1)")
+                    Text("score: \(scoreAccumulator + (theSnake.count - 1))")
                         .padding()
                         .monospaced()
                         .foregroundStyle(Color("defaultFontColor"))
@@ -318,6 +319,13 @@ struct GameView: View {
                 
                 
             } // End of ZStack
+            .background(
+                ShakeDetector(onShake: {
+                    if !gameStatus.isGamePaused && !gameStatus.isGameOver {
+                        resetSnake()
+                    }
+                })
+            )
         } // End of GeometryReader
         .edgesIgnoringSafeArea(.bottom)
         // Game Over sheet.
@@ -426,8 +434,9 @@ struct GameView: View {
     // Handles game over logic.
     func gameOver() {
         gameStatus.isGameOver = true
-        if theSnake.count > 1 {
-            score.score = theSnake.count - 1
+        let finalScore = scoreAccumulator + (theSnake.count - 1)
+        if finalScore > 0 {
+            score.score = finalScore
             saveGameItem()
         }
     }
@@ -476,11 +485,15 @@ struct GameView: View {
         // Initialize new GameItem
         score = GameItem()
         
+        // Reset score accumulator
+        scoreAccumulator = 0
+        
         // Reset Game Board
         if gameItems.count > 0 {
             self.highScore = calculateHighScore()
         }
-        theSnake = [CGPoint(x: 0, y: 0)] // Set Snake back to 1 pxl
+        // Set Snake back to 1 pxl
+        theSnake = [CGPoint(x: 0, y: 0)]
         
         self.foodPosition = changeRectPosition()
         self.theSnake[0] = changeRectPosition()
@@ -495,6 +508,15 @@ struct GameView: View {
         timerInterval = 0.15
         lastSpeedIncreaseScore = 0
     }
+    
+    func resetSnake() {
+            // Add the current snake score to the accumulator.
+            let currentSnakeScore = theSnake.count - 1
+            scoreAccumulator += currentSnakeScore
+            // Reset the snake to a single segment at new random position
+            theSnake = [changeRectPosition()]
+            print("Snake reset via shake. Accumulated Score: \(scoreAccumulator)")
+        }
     
     func calculateAccumulatedPoints() {
         accumulatedPoints = gameItems.reduce(0) { $0 + $1.score }
