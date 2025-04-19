@@ -196,7 +196,7 @@ struct GameView: View {
         Timer.publish(every: timerInterval, on: .main, in: .common).autoconnect()
     }
     
-    enum Direction {
+    enum Direction: CaseIterable {
         case up, down, left, right
     }
     
@@ -231,10 +231,6 @@ struct GameView: View {
     // MARK: - Main Game Layer
     private var gameLayer: some View {
         GeometryReader { geometry in
-            // Define game area that is smaller than the screen
-            let playAreaWidth = geometry.size.width * 0.9
-            var playAreaHeight = geometry.size.height * 0.8
-            
             ZStack {
                 
                 //Background color
@@ -306,8 +302,14 @@ struct GameView: View {
                     if !gameItems.isEmpty {
                       highScore = calculateHighScore()
                     }
+                    // Pick a random start direction
+                    direction = Direction.allCases.randomElement()!
+
+                    // Spawn snake head in the middle third
+                    theSnake = [ randomInitialPosition() ]
+
+                    // Give food its spot anywhere
                     foodPosition = changeRectPosition()
-                    theSnake[0]  = changeRectPosition()
                     
                     if bankPoints == 0 {
                         let totalFromHistory = gameItems.reduce(0) { $0 + $1.score }
@@ -639,6 +641,9 @@ struct GameView: View {
         // Initialize new GameItem
         score = GameItem()
         
+        // Pick a new random direction
+        direction = Direction.allCases.randomElement()!
+        
         // Reset score accumulator
         scoreAccumulator = 0
         
@@ -692,6 +697,30 @@ struct GameView: View {
 
         print("Power‑up! Snake reset at \(headPosition). Accumulated Score: \(scoreAccumulator), Bank: \(bankPoints)")
     }
+    
+    // Returns a random cell‐center within the middle third of the play area - use for new game snake placement
+    private func randomInitialPosition() -> CGPoint {
+        // How many whole cells fit?
+        let columns = Int(playAreaLocalWidth / snakeSize)
+        let rows    = Int(playAreaLocalHeight / snakeSize)
+
+        // Compute the 1/3 and 2/3 indices
+        let minCol = columns / 3
+        let maxCol = (columns * 2) / 3
+        let minRow = rows / 3
+        let maxRow = (rows * 2) / 3
+
+        // Pick a random column & row in that band
+        let col = Int.random(in: minCol..<maxCol)
+        let row = Int.random(in: minRow..<maxRow)
+
+        // Convert to center‐point of the cell
+        let x = CGFloat(col) * snakeSize + snakeSize / 2
+        let y = CGFloat(row) * snakeSize + snakeSize / 2
+
+        return CGPoint(x: x, y: y)
+    }
+
 }
 
 // MARK: - Game Menu
