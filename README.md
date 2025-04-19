@@ -15,6 +15,6 @@ This is a mobile game written in Swift and SwiftUI, recreating the classic Nokia
 Clone the repository and open the `.xcodeproj` file in Xcode.
 
 ```bash
-https://github.com/madsbads/SnakeGame.git
+git clone https://github.com/madsbads/SnakeGame.git
 cd SnakeGame
 open SnakeGame.xcodeproj
