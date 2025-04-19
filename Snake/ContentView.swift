@@ -17,6 +17,7 @@ class GameStatus: ObservableObject {
 
 final class GameSettings: ObservableObject {
     @Published var controlMode: MainMenuView.ControlMode = .drag
+    @Published var soundEffectsEnabled: MainMenuView.SoundMode = .on
 }
 
 // MARK: - Content View
@@ -43,8 +44,15 @@ struct MainMenuView: View {
         case drag = "drag"
         case tilt = "tilt"
     }
+    enum SoundMode: String, CaseIterable, Identifiable {
+        var id: String { self.rawValue }
+        case on = "on"
+        case off = "off"
+    }
+    
     // State var to track selection
     @State private var selectedMode: ControlMode = .drag
+    @State private var soundEffects: SoundMode = .on
     
     @State private var isGameActive: Bool = false
     @State private var inSettings: Bool = false
@@ -87,30 +95,60 @@ struct MainMenuView: View {
             GameView(gameStatus: gameStatus)
         }
         .sheet(isPresented: $inSettings) {
-            HStack() {
-                Text("play mode")
-                    .monospaced()
-                    
+            ZStack {
+                VStack {
+                    Text("Swipe down to close")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding()
+                    Divider()
+                        .frame(width: 40)
+                        .background(Color.secondary)
+                        .cornerRadius(2)
+                    Spacer()
+                }
                 
-                // The Picker with a segmented style allows a toggle between the two options.
-                Picker("Control Mode", selection: $selectedMode) {
-                    ForEach(ControlMode.allCases) { mode in
-                        Text(mode.rawValue)
-                            .tag(mode)
+                VStack {
+                
+                    HStack {
+                        Text("play mode")
+                            .monospaced()
+                            
+                        Picker("control mode", selection: $selectedMode) {
+                            ForEach(ControlMode.allCases) { mode in
+                                Text(mode.rawValue)
+                                    .tag(mode)
+                            }
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .padding()
+                    }
+                    
+                    HStack {
+                        Text("sound effects")
+                            .monospaced()
+
+                        Picker("sound effects", selection: $soundEffects) {
+                            ForEach(SoundMode.allCases) { mode in
+                                Text(mode.rawValue)
+                                    .tag(mode)
+                            }
+                        }
+                        .pickerStyle(SegmentedPickerStyle())
+                        .padding()
                     }
                 }
-                .pickerStyle(SegmentedPickerStyle())
-                .padding()
             }
             .padding()
             .onDisappear {
                 // Upddate shared setting when sheet dismissed
                 gameSettings.controlMode = selectedMode
+                gameSettings.soundEffectsEnabled = soundEffects
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color("defaultBackgroundColor"))
         }
         .interactiveDismissDisabled(false)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("defaultBackgroundColor"))
     }
 }
 
@@ -125,14 +163,21 @@ struct GameView: View {
            order: .forward) private var gameItems: [GameItem]
     @Environment(\.dismiss) var dismiss
     
+    // scenePhase to handle interupts
+    @Environment(\.scenePhase) private var scenePhase
+    
+    // Power up alert
+    @State private var showShakeAlert: Bool = false
+    
     // GameItems for active game to save score
     @State private var score: GameItem = GameItem()
     @State private var highScore: GameItem?
-    @State private var accumulatedPoints : Int = 0
+    @AppStorage("bankPoints") private var bankPoints: Int = 0
     
     // gameOver and isPaused booleans for toggling
     @Bindable var gameStatus: GameStatus
     @State private var isStarted: Bool = true
+    @State private var powerUpMenu = false
     
     // Game pieces
     @State private var direction = Direction.left
@@ -163,16 +208,33 @@ struct GameView: View {
         case tilt
     }
     
+    enum SoundMode {
+        case on
+        case off
+    }
+    
     @EnvironmentObject private var gameSettings: GameSettings
     @State private var motionManager = MotionManager()
+
     
     var body: some View {
         
+        ZStack {
+            gameLayer
+            if showShakeAlert {
+                shakeAlert
+            }
+        }
+    }
+        
+        
+    // MARK: - Main Game Layer
+    private var gameLayer: some View {
         GeometryReader { geometry in
             // Define game area that is smaller than the screen
             let playAreaWidth = geometry.size.width * 0.9
-            let playAreaHeight = geometry.size.height * 0.8
-
+            var playAreaHeight = geometry.size.height * 0.8
+            
             ZStack {
                 
                 //Background color
@@ -190,7 +252,7 @@ struct GameView: View {
                     Button(action: {
                         gameStatus.isGamePaused.toggle()
                     }) {
-                        Text("bank: \(accumulatedPoints)")
+                        Text("bank: \(bankPoints)")
                             .padding()
                             .monospaced()
                             .foregroundStyle(Color("defaultFontColor"))
@@ -214,24 +276,43 @@ struct GameView: View {
                         .position(self.foodPosition)
                 }
                 // Set frame and center it
-                .frame(width: playAreaWidth, height: playAreaHeight)
-                // Draw border
-                .border(Color("defaultFontColor"), width: 3)
+                .frame(width: playAreaLocalWidth, height: playAreaLocalHeight)
                 .contentShape(Rectangle())
+                .overlay(
+                  Rectangle()
+                    .strokeBorder(Color("defaultFontColor"), lineWidth: 3)
+                )
+                .clipped()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                
                 // onAppear: update play bounds and set inital positions
                 .onAppear() {
                     
-                    // Update play area bounds
-                    self.playAreaLocalWidth = playAreaWidth
-                    self.playAreaLocalHeight = playAreaHeight
-                    
-                    if gameItems.count > 0 {
-                        self.highScore = calculateHighScore()
+                    // Compute the “ideal” play area
+                    let rawW = geometry.size.width  * 0.9
+                    let rawH = geometry.size.height * 0.8
+
+                    // How many whole segments fit?
+                    let columns = Int(rawW / snakeSize)
+                    let rows    = Int(rawH / snakeSize)
+
+                    // Play area exact multiple of snakeSize
+                    let fittedW = CGFloat(columns) * snakeSize
+                    let fittedH = CGFloat(rows)    * snakeSize
+
+                    // Store as true bounds
+                    playAreaLocalWidth  = fittedW
+                    playAreaLocalHeight = fittedH
+
+                    if !gameItems.isEmpty {
+                      highScore = calculateHighScore()
                     }
-                    self.foodPosition = changeRectPosition()
-                    self.theSnake[0] = changeRectPosition()
+                    foodPosition = changeRectPosition()
+                    theSnake[0]  = changeRectPosition()
+                    
+                    if bankPoints == 0 {
+                        let totalFromHistory = gameItems.reduce(0) { $0 + $1.score }
+                        bankPoints = totalFromHistory
+                    }
                 }
                 // Handle swipe gestures
                 .if(gameSettings.controlMode == .drag) { view in
@@ -261,10 +342,10 @@ struct GameView: View {
                 // Update snake movement on each timer tick
                 .onReceive(self.timerPublisher) { _ in
                     // If paused or game over, don't update game anymore
-                    if gameStatus.isGamePaused || gameStatus.isGameOver {
+                    if gameStatus.isGamePaused || gameStatus.isGameOver || powerUpMenu {
                         return
                     }
-                
+                    
                     if gameSettings.controlMode == .tilt {
                         let tiltThreshold = 0.2
                         
@@ -286,15 +367,18 @@ struct GameView: View {
                     
                     // Check for food collision
                     if theSnake.first == foodPosition {
+                        if gameSettings.soundEffectsEnabled == .on {
+                            SoundManager.playSound(sound: "munch", type: "wav")
+                        }
                         theSnake.append(theSnake.first!) // Snake grows
                         foodPosition = changeRectPosition()
+                        bankPoints += 1
                     }
                 }
                 
-                
                 HStack {
                     Button(action: {
-                        gameStatus.isGamePaused.toggle()
+                        powerUpMenu.toggle()
                     }) {
                         Image(systemName: "powerplug.portrait")
                             .resizable()
@@ -328,6 +412,14 @@ struct GameView: View {
             )
         } // End of GeometryReader
         .edgesIgnoringSafeArea(.bottom)
+        // Detect changes in scene phase
+        .onChange(of: scenePhase) { oldPhase, newPhase in  // 2 param enclosure required
+            if newPhase != .active {
+                // Pause game if app is inactive
+                gameStatus.isGamePaused = true
+                print("Game paused due to scene change")
+            }
+        }
         // Game Over sheet.
         .sheet(isPresented: $gameStatus.isGameOver) {
             VStack {
@@ -360,39 +452,81 @@ struct GameView: View {
         }
         // Pause sheet (if needed).
         .sheet(isPresented: $gameStatus.isGamePaused) {
-            VStack {
-                Image(systemName: "pause.circle.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .foregroundColor(Color("defaultFontColor"))
-                    .padding()
+            ZStack {
+                VStack {
+                    Text("Swipe down to close")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding()
+                    Divider()
+                        .frame(width: 40)
+                        .background(Color.secondary)
+                        .cornerRadius(2)
+                    Spacer()
+                }
+                VStack {
+                    Text("high score: \(highScore?.score ?? 0)")
+                        .monospaced()
+                        .bold()
+                        .padding()
+                    
+                    Text("accumulated points: \(bankPoints)")
+                        .monospaced()
+                        .bold()
+                        .padding()
+                }
+            }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color("defaultBackgroundColor"))
+        }
+        .sheet(isPresented: $powerUpMenu) {
+            ZStack {
+                VStack {
+                    Text("Swipe down to close")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding()
+                    Divider()
+                        .frame(width: 40)
+                        .background(Color.secondary)
+                        .cornerRadius(2)
+                    Spacer()
+                }
                 
-                Text("high score: \(highScore?.score ?? 0)")
-                    .monospaced()
-                    .bold()
-                    .padding()
-                
-                Text("accumulated points: \(accumulatedPoints)")
-                    .monospaced()
-                    .bold()
-                    .padding()
+                VStack {
+                    
+                    Text("shake to power up!")
+                        .monospaced()
+                        .bold()
+                        .padding()
+                    Text("requires 20 points from the bank")
+                        .monospaced()
+                        .bold()
+                        .padding()
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color("defaultBackgroundColor"))
         }
     }
+        
+    //MARK: - Shake Alert
+    private var shakeAlert: some View {
+        Text("shake detected!")
+            .font(.headline)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(Color("defaultButtonColor").opacity(0.7))
+            .foregroundColor(Color("defaultFontColor"))
+            .cornerRadius(8)
+            .transition(.opacity)
+            .zIndex(1)
+    }
     // MARK: - Game View Functions
     
     func moveSnake() {
-        // Check for boundary collisions first.
           let head = theSnake[0]
-          if head.x < 0 || head.x > playAreaLocalWidth ||
-             head.y < 0 || head.y > playAreaLocalHeight {
-              gameOver()
-              return
-          }
-          
+
           // Calculate new head position.
           var newHead = head
           switch direction {
@@ -405,6 +539,23 @@ struct GameView: View {
           case .right:
               newHead.x += snakeSize
           }
+        
+        let half = snakeSize / 2
+        
+        // Check if newHead is within bounds - boundary collision
+        if newHead.x - half < 0 ||
+           newHead.x + half > playAreaLocalWidth ||
+           newHead.y - half < 0 ||
+           newHead.y + half > playAreaLocalHeight
+        
+        {
+            // Play collision sound effect if enabled.
+            if gameSettings.soundEffectsEnabled == .on {
+                SoundManager.playSound(sound: "bummer", type: "wav")
+            }
+            gameOver()
+            return
+        }
           
           // Move body segments.
           var prev = theSnake[0]
@@ -418,6 +569,9 @@ struct GameView: View {
           // Check for self-collision.
           for segment in theSnake.dropFirst() {
               if newHead == segment {
+                  if gameSettings.soundEffectsEnabled == .on {
+                      SoundManager.playSound(sound: "bummer", type: "wav")
+                  }
                   gameOver()
                   return
               }
@@ -436,6 +590,8 @@ struct GameView: View {
         gameStatus.isGameOver = true
         let finalScore = scoreAccumulator + (theSnake.count - 1)
         if finalScore > 0 {
+            bankPoints += finalScore
+            
             score.score = finalScore
             saveGameItem()
         }
@@ -443,17 +599,17 @@ struct GameView: View {
     
     func changeRectPosition() -> CGPoint {
         
-        // Calculate how many snake segments fit in play area
-        let columns = Int(playAreaLocalWidth / snakeSize)
-        let rows = Int(playAreaLocalHeight / snakeSize)
-        let randomColumn = CGFloat(Int.random(in: 0..<columns))
-        let randomRow = CGFloat(Int.random(in: 0..<rows))
-        
-        // Offset random position so snake/food is centered in cell
-        let posX = randomColumn * snakeSize + snakeSize / 2
-        let posY = randomRow * snakeSize + snakeSize / 2
-        
-        return CGPoint(x: posX, y: posY)
+        var newPosition: CGPoint
+        repeat {
+            let columns = Int(playAreaLocalWidth / snakeSize)
+            let rows = Int(playAreaLocalHeight / snakeSize)
+            let randomColumn = CGFloat(Int.random(in: 0..<columns))
+            let randomRow = CGFloat(Int.random(in: 0..<rows))
+            let posX = randomColumn * snakeSize + snakeSize / 2
+            let posY = randomRow * snakeSize + snakeSize / 2
+            newPosition = CGPoint(x: posX, y: posY)
+        } while theSnake.contains(newPosition)
+        return newPosition
     }
     
     func saveGameItem() {
@@ -471,8 +627,6 @@ struct GameView: View {
                 highScore = item
             }
         }
-
-//        highScore = gameItems[0] // write sorting function instead of depending on query sort
         print("calculateHighScore: \(String(describing: highScore?.score))")
         return highScore ?? GameItem()
     }
@@ -501,25 +655,42 @@ struct GameView: View {
         // Update highScore as needed
         self.highScore = calculateHighScore()
         
-        // Update accumulatedPoints
-        calculateAccumulatedPoints()
-        
         // Reset speed-related variables
         timerInterval = 0.15
         lastSpeedIncreaseScore = 0
     }
     
     func resetSnake() {
-            // Add the current snake score to the accumulator.
-            let currentSnakeScore = theSnake.count - 1
-            scoreAccumulator += currentSnakeScore
-            // Reset the snake to a single segment at new random position
-            theSnake = [changeRectPosition()]
-            print("Snake reset via shake. Accumulated Score: \(scoreAccumulator)")
+        // Only perform a reset if the bank has at least 20 points.
+        guard bankPoints >= 20 else {
+            print("Not enough bank points to reset snake. Required 20, but have \(bankPoints).")
+            return
         }
-    
-    func calculateAccumulatedPoints() {
-        accumulatedPoints = gameItems.reduce(0) { $0 + $1.score }
+
+        // Deduct cost
+        bankPoints -= 20
+
+        // Accumulate the score from the old snake
+        let currentSnakeScore = theSnake.count - 1
+        scoreAccumulator += currentSnakeScore
+
+        // Remember head’s current location
+        let headPosition = theSnake.first!
+
+        // Shrink the snake to only head
+        theSnake = [headPosition]
+        
+        // On Screen Alert
+        withAnimation(.easeInOut(duration: 0.3)) {
+            showShakeAlert = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                showShakeAlert = false
+            }
+        }
+
+        print("Power‑up! Snake reset at \(headPosition). Accumulated Score: \(scoreAccumulator), Bank: \(bankPoints)")
     }
 }
 

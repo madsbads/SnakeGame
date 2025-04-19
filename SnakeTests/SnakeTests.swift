@@ -10,27 +10,38 @@ import XCTest
 
 final class SnakeTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+    func testGameStatusInitialValues() {
+        let gameStatus = GameStatus()
+        XCTAssertFalse(gameStatus.isGameOver, "Game should not be over when first initialized")
+        XCTAssertFalse(gameStatus.isGamePaused, "Game should not be paused when first initialized")
     }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+    
+    func testHighScoreCalculation() {
+        // Create a few dummy GameItems
+        let item1 = GameItem()
+        item1.score = 5
+        let item2 = GameItem()
+        item2.score = 10
+        let item3 = GameItem()
+        item3.score = 7
+        
+        let gameItems = [item1, item2, item3]
+        
+        // Simulate calculating the high score.
+        // (In your GameView the logic loops through gameItems; here we can simulate that.)
+        let highScore = gameItems.max { $0.score < $1.score }
+        XCTAssertEqual(highScore?.score, 10, "The high score should be 10")
     }
-
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+    
+    // If you extract reset logic into a separate GameLogic class or extension, you could test it like:
+    /*
+    func testResetSnakeWithSufficientBank() {
+        let gameLogic = GameLogic() // Your custom logic type
+        gameLogic.accumulatedPoints = 25
+        gameLogic.theSnake = [CGPoint(x: 0, y: 0), CGPoint(x: 22, y: 0)]
+        gameLogic.resetSnake()
+        XCTAssertEqual(gameLogic.accumulatedPoints, 5, "20 points should have been deducted")
+        XCTAssertEqual(gameLogic.theSnake.count, 1, "The snake should have been reset to one segment")
     }
-
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
-    }
-
+    */
 }
