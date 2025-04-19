@@ -655,7 +655,8 @@ struct GameView: View {
         theSnake = [CGPoint(x: 0, y: 0)]
         
         self.foodPosition = changeRectPosition()
-        self.theSnake[0] = changeRectPosition()
+        self.theSnake = [ randomInitialPosition() ]
+
         
         // Update highScore as needed
         self.highScore = calculateHighScore()
